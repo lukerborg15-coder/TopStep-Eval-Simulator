@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import pytest
-from eval_sim.trades import TradeResult
 
 
 def make_bars(n: int = 200, freq: str = "5min", start: str = "2020-01-02 09:30") -> pd.DataFrame:
@@ -19,7 +18,8 @@ def make_bars(n: int = 200, freq: str = "5min", start: str = "2020-01-02 09:30")
     )
 
 
-def make_trade(net_pnl: float = 100.0, entry_time: str = "2020-01-02 09:35") -> TradeResult:
+def make_trade(net_pnl: float = 100.0, entry_time: str = "2020-01-02 09:35"):
+    from eval_sim.trades import TradeResult
     ts = pd.Timestamp(entry_time, tz="US/Eastern")
     return TradeResult(
         entry_time=ts,
