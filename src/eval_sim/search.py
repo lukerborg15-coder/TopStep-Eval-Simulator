@@ -54,8 +54,17 @@ def _score_candidate(
 
 
 def _worker(args: tuple) -> tuple[dict, float]:
-    """Multiprocessing worker: (bars, fn, params, windows, instrument, risk, max_c) -> (params, score)"""
-    bars, strategy_fn, params, wf_windows, instrument, risk_dollars, max_contracts = args
+    """Multiprocessing worker.
+
+    args = (bars, strategy_fn, strategy_path, params, windows, instrument, risk, max_c)
+    When strategy_path is set, the worker re-loads the strategy module from disk —
+    necessary because strategies loaded via importlib.spec_from_file_location aren't
+    importable in spawn workers (their module isn't on sys.path).
+    """
+    bars, strategy_fn, strategy_path, params, wf_windows, instrument, risk_dollars, max_contracts = args
+    if strategy_path is not None:
+        from eval_sim.strategy import load_strategy
+        strategy_fn = load_strategy(strategy_path).generate_signals
     score = _score_candidate(bars, strategy_fn, params, wf_windows, instrument, risk_dollars, max_contracts)
     return params, score
 
@@ -71,12 +80,18 @@ def random_search(
     config: SearchConfig = SEARCH,
     n_workers: int | None = None,
     fast_mode: bool = False,
+    strategy_path: str | None = None,
 ) -> SearchResult:
     """
     Randomly sample n_candidates param combinations and score each across WF OOS folds.
     Returns the best params by mean sequential Combine eval pass rate.
 
     fast_mode=True: skip search, return midpoint params with score=0 and n_evaluated=0.
+
+    strategy_path: when set and multi-worker (n_workers != 1), workers re-load the
+    strategy from this path instead of receiving the function via pickle. Required
+    for strategies loaded via importlib.spec_from_file_location which can't be
+    pickled across the spawn boundary on Windows.
     """
     if fast_mode:
         return SearchResult(
@@ -88,12 +103,16 @@ def random_search(
     rng = np.random.default_rng(config.seed)
     candidates = [sample_params(param_ranges, rng) for _ in range(config.n_candidates)]
 
+    use_multi = n_workers != 1
+    fn_arg = None if (use_multi and strategy_path is not None) else strategy_fn
+    path_arg = strategy_path if use_multi else None
+
     worker_args = [
-        (bars, strategy_fn, params, wf_windows, instrument, risk_dollars, max_contracts)
+        (bars, fn_arg, path_arg, params, wf_windows, instrument, risk_dollars, max_contracts)
         for params in candidates
     ]
 
-    if n_workers == 1:
+    if not use_multi:
         results = [_worker(args) for args in worker_args]
     else:
         # On Windows, multiprocessing uses "spawn" (not "fork"), which requires
