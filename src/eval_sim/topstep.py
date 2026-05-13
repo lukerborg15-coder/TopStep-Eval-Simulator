@@ -21,6 +21,7 @@ class SeqEvalResult:
     attempts: int
     pass_rate: float
     attempt_days: tuple[int, ...]   # trading days consumed per attempt — used for median calculation
+    worst_drawdown: float = 0.0     # max drawdown seen across all attempts
 
 
 def _group_by_day(trades: list[TradeResult]) -> dict[str, list[TradeResult]]:
@@ -154,6 +155,7 @@ def simulate_seq_evals(
     passes = 0
     attempts = 0
     attempt_days: list[int] = []
+    worst_drawdown = 0.0
     MAX_ATTEMPTS = 10_000  # safety valve against infinite loops from buggy strategies
 
     while remaining and attempts < MAX_ATTEMPTS:
@@ -164,6 +166,7 @@ def simulate_seq_evals(
 
         attempts += 1
         attempt_days.append(result.trading_days)
+        worst_drawdown = max(worst_drawdown, result.max_drawdown_seen)
         if result.passed:
             passes += 1
 
@@ -185,4 +188,5 @@ def simulate_seq_evals(
         attempts=attempts,
         pass_rate=pass_rate,
         attempt_days=tuple(attempt_days),
+        worst_drawdown=worst_drawdown,
     )
