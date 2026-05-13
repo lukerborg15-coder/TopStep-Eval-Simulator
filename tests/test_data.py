@@ -60,3 +60,16 @@ def test_load_ohlcv_accepts_datetime_column(tmp_path):
     df = load_ohlcv("mnq", "5min", data_dir=tmp_path)
     assert len(df) == 1
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+
+
+def test_load_ohlcv_handles_mixed_dst_offsets(tmp_path):
+    csv = tmp_path / "mnq_5min_databento.csv"
+    csv.write_text(
+        "datetime,open,high,low,close,volume\n"
+        "2024-01-15 09:30:00-05:00,100,101,99,100,500\n"
+        "2024-07-15 09:30:00-04:00,200,201,199,200,500\n"
+    )
+    df = load_ohlcv("mnq", "5min", data_dir=tmp_path)
+    assert df.index.tz is not None
+    assert len(df) == 2
+    assert df.index.is_monotonic_increasing
