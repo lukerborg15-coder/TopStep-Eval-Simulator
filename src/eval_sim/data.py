@@ -37,7 +37,14 @@ def load_ohlcv(
     if missing:
         raise DataLoadError(f"Missing columns {missing} in {path}")
 
-    df.index = pd.to_datetime(df.index, utc=True).tz_convert("US/Eastern")
+    normalized_index = []
+    for value in df.index:
+        ts = pd.Timestamp(value)
+        if ts.tzinfo is None or ts.utcoffset() is None:
+            normalized_index.append(ts.tz_localize("US/Eastern"))
+        else:
+            normalized_index.append(ts.tz_convert("US/Eastern"))
+    df.index = pd.DatetimeIndex(normalized_index)
 
     df = df.sort_index()
     df = df[["open", "high", "low", "close", "volume"]].astype(float)

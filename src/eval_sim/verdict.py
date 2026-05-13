@@ -32,6 +32,8 @@ def compute_verdict(
 
     if pass_rate < thresholds.reject_pass_rate:
         reject_reasons.append(f"pass_rate {pass_rate:.1%} below reject floor {thresholds.reject_pass_rate:.1%}")
+    if mc_pass_rate_p05 < thresholds.reject_pass_rate:
+        reject_reasons.append(f"mc_pass_rate_p05 {mc_pass_rate_p05:.1%} below reject floor {thresholds.reject_pass_rate:.1%}")
     if worst_drawdown > thresholds.reject_max_dd:
         reject_reasons.append(f"drawdown ${worst_drawdown:.0f} exceeds reject limit ${thresholds.reject_max_dd:.0f}")
 
@@ -40,7 +42,11 @@ def compute_verdict(
 
     if reject_reasons:
         verdict = "REJECT"
-    elif pass_rate >= thresholds.ready_pass_rate and worst_drawdown <= thresholds.ready_max_dd:
+    elif (
+        pass_rate >= thresholds.ready_pass_rate
+        and mc_pass_rate_p05 >= thresholds.ready_pass_rate
+        and worst_drawdown <= thresholds.ready_max_dd
+    ):
         verdict = "COMBINE-READY"
     else:
         verdict = "MARGINAL"

@@ -53,7 +53,9 @@ def compute_windows(
     train/test split.
     """
     holdout_start = data_end - relativedelta(months=config.holdout_months)
-    wf_start = data_start
+    wf_months = int(round(config.wf_years * 12))
+    configured_wf_start = holdout_start - relativedelta(months=wf_months)
+    wf_start = max(data_start, configured_wf_start)
     wf_end = holdout_start
 
     total_months = (data_end - data_start).days / 30.44

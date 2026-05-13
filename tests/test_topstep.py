@@ -60,6 +60,19 @@ def test_simulate_topstep_eod_trailing_floor_raises():
     assert result.fail_reason == "max_drawdown"
 
 
+def test_simulate_topstep_reports_drawdown_consumed_from_active_trailing_floor():
+    # Day 1 EOD raises the trailing floor to $49,500, implying active high-water
+    # protection at $51,500. Day 2 ends near that floor, so consumed trailing
+    # drawdown is $1,900 even though the account is only $400 below start.
+    trades = [
+        _trade(1500.0, "2020-01-02"),
+        _trade(-1900.0, "2020-01-03"),
+    ]
+    result = simulate_topstep(trades, TOPSTEP_50K)
+    assert result.fail_reason != "max_drawdown"
+    assert result.max_drawdown_seen == 1900.0
+
+
 def test_simulate_topstep_eod_floor_does_not_trail_intraday():
     # Intraday spike does NOT raise the floor — only EOD balance does.
     # Day 1 closes at $50,000 (started $50,000, made and lost $1,500 intraday)

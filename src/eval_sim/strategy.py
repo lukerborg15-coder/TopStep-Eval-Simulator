@@ -24,6 +24,18 @@ def load_strategy(path: str | Path) -> StrategyContract:
     The file must define:
       PARAM_RANGES: dict[str, list]
       generate_signals(bars: pd.DataFrame, params: dict) -> pd.DataFrame
+
+    generate_signals must return at least columns:
+      entry_time, direction, entry, stop, target
+
+    Optional columns (trade simulation in evaluate_window):
+      session_end — str clock on entry date (US/Eastern), e.g. '17:00'; omit for legacy midnight session end.
+      stop_mode — 'intrabar' (default) or 'close' (stop when bar close crosses stop).
+      partial_targets, partial_fracs — same-length lists or JSON strings; fractions are shares of
+      initial contracts per ladder rung; wick-based fills. Omit for single target.
+
+    Optional params key for evaluate_window (include in PARAM_RANGES if search should vary it):
+      flat_only — if True, skip signals whose entry_time is before the prior trade's exit_time.
     """
     path = Path(path)
     if not path.exists():

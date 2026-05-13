@@ -32,3 +32,9 @@ output/
 
 # Local OHLCV exports (MNQ, MES, etc.) — large; place files here per README
 Data/
+
+# Local / proprietary strategies — keep public template only
+src/eval_sim/strategies/*
+!src/eval_sim/strategies/__init__.py
+!src/eval_sim/strategies/example_strategy.py
+tests/test_sma21_retrace.py

@@ -42,6 +42,18 @@ def test_wf_windows_cover_full_wf_period():
     assert result.wf_windows[-1].end <= result.wf_end
 
 
+def test_long_history_does_not_expand_wf_beyond_configured_years():
+    start = pd.Timestamp("2010-01-01", tz="US/Eastern")
+    end = pd.Timestamp("2024-07-01", tz="US/Eastern")
+    result = compute_windows(start, end, bars_index=None, config=_SPLIT)
+
+    assert result.holdout.start == pd.Timestamp("2023-01-01", tz="US/Eastern")
+    assert result.wf_end == result.holdout.start
+    assert result.wf_start == pd.Timestamp("2019-07-01", tz="US/Eastern")
+    assert result.wf_windows[0].start == result.wf_start
+    assert result.wf_windows[-1].end == result.wf_end
+
+
 def test_wf_windows_do_not_overlap():
     start = pd.Timestamp("2019-01-01", tz="US/Eastern")
     end = pd.Timestamp("2024-07-01", tz="US/Eastern")

@@ -2,7 +2,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
+from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 
 from eval_sim.config import INSTRUMENTS, DATA_SPLIT, SEARCH, TOPSTEP_50K
@@ -19,6 +20,7 @@ from eval_sim.windows import compute_windows
 
 
 RISK_GRID = [150.0, 200.0, 300.0, 400.0, 500.0, 650.0, 800.0, 1000.0, 1200.0, 1500.0]
+FAST_RISK_GRID = [500.0]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,7 +80,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Compute windows
     try:
-        windows = compute_windows(data_start, data_end, bars_index=bars.index, config=DATA_SPLIT)
+        split_config = replace(DATA_SPLIT, warmup_bars=strategy.warmup_bars)
+        windows = compute_windows(data_start, data_end, bars_index=bars.index, config=split_config)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -125,8 +128,15 @@ def main(argv: list[str] | None = None) -> int:
             warmup_start=w.warmup_start,
         )
         w_result = run_continuous_eval(w_trades)
-        wf_window_results.append((idx, w, w_result))
-        status = "EMPTY" if w_result.is_empty else f"pass={w_result.pass_rate:.3f} mean_days={w_result.mean_days_per_attempt:.1f} median_days={w_result.median_days_per_attempt:.1f}"
+        n_trades = len(w_trades)
+        wf_window_results.append((idx, w, w_result, n_trades))
+        if w_result.is_empty:
+            status = f"EMPTY  n_trades={n_trades}"
+        else:
+            status = (
+                f"pass={w_result.pass_rate:.3f} mean_days={w_result.mean_days_per_attempt:.1f} "
+                f"median_days={w_result.median_days_per_attempt:.1f}  n_trades={n_trades}"
+            )
         print(f"  Window {idx} ({w.start.date()} → {w.end.date()}): {status}")
 
     # Sensitivity sweep uses the last WF window with warmup
@@ -160,9 +170,11 @@ def main(argv: list[str] | None = None) -> int:
         warmup_start=windows.holdout.warmup_start,
     )
     eval_result = run_continuous_eval(holdout_trades)
+    holdout_n_trades = len(holdout_trades)
     print(
         f"pass_rate={eval_result.pass_rate:.3f}  passes={eval_result.passes}  "
-        f"attempts={eval_result.attempts}  worst_dd=${eval_result.worst_attempt_drawdown:.0f}"
+        f"attempts={eval_result.attempts}  n_trades={holdout_n_trades}  "
+        f"worst_dd=${eval_result.worst_attempt_drawdown:.0f}"
     )
 
     # Stage 4: Monte Carlo
@@ -184,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         instrument=instrument,
         max_contracts=args.max_contracts,
         fixed_risk_dollars=args.fixed_risk,
+        risk_grid=FAST_RISK_GRID if args.fast else RISK_GRID,
     )
     print(f"Optimal risk: ${sizing.optimal_risk_dollars:.0f}  pass rate: {sizing.optimal_pass_rate:.3f}  expected days/success: {sizing.optimal_expected_days:.1f}")
     print("Risk grid (holdout):")
@@ -209,10 +222,24 @@ def main(argv: list[str] | None = None) -> int:
     for w in verdict.warn_reasons:
         print(f"  WARN: {w}")
 
-    # Write JSON output
+    # Write JSON output (timestamped so reruns do not clobber prior results)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_file = output_dir / f"{strategy.name}_{args.instrument}_{args.timeframe}_result.json"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    out_file = output_dir / f"{strategy.name}_{args.instrument}_{args.timeframe}_result_{stamp}.json"
+
+    holdout_payload = {
+        "start": str(windows.holdout.start.date()),
+        "end": str(windows.holdout.end.date()),
+        "is_empty": eval_result.is_empty,
+        "pass_rate": eval_result.pass_rate,
+        "passes": eval_result.passes,
+        "attempts": eval_result.attempts,
+        "mean_days_per_attempt": eval_result.mean_days_per_attempt,
+        "median_days_per_attempt": eval_result.median_days_per_attempt,
+        "worst_attempt_drawdown": eval_result.worst_attempt_drawdown,
+        "n_trades": holdout_n_trades,
+    }
 
     result_bundle = {
         "strategy": strategy.name,
@@ -246,15 +273,16 @@ def main(argv: list[str] | None = None) -> int:
                 "mean_days_per_attempt": res.mean_days_per_attempt,
                 "median_days_per_attempt": res.median_days_per_attempt,
                 "worst_drawdown": res.worst_attempt_drawdown,
+                "n_trades": n_trades,
             }
-            for idx, w, res in wf_window_results
+            for idx, w, res, n_trades in wf_window_results
         ],
         "wf_aggregate": {
             "mean_pass_rate": (
-                sum(r.pass_rate for _, _, r in wf_window_results if not r.is_empty)
-                / max(1, sum(1 for _, _, r in wf_window_results if not r.is_empty))
+                sum(r.pass_rate for _, _, r, _ in wf_window_results if not r.is_empty)
+                / max(1, sum(1 for _, _, r, _ in wf_window_results if not r.is_empty))
             ),
-            "empty_windows": sum(1 for _, _, r in wf_window_results if r.is_empty),
+            "empty_windows": sum(1 for _, _, r, _ in wf_window_results if r.is_empty),
         },
         "sensitivity": {
             "is_cliff": sensitivity.is_cliff,
@@ -268,17 +296,8 @@ def main(argv: list[str] | None = None) -> int:
                 for param, ps in sensitivity.param_results.items()
             },
         },
-        "holdout": {
-            "start": str(windows.holdout.start.date()),
-            "end": str(windows.holdout.end.date()),
-            "is_empty": eval_result.is_empty,
-            "pass_rate": eval_result.pass_rate,
-            "passes": eval_result.passes,
-            "attempts": eval_result.attempts,
-            "mean_days_per_attempt": eval_result.mean_days_per_attempt,
-            "median_days_per_attempt": eval_result.median_days_per_attempt,
-            "worst_attempt_drawdown": eval_result.worst_attempt_drawdown,
-        },
+        "holdout": holdout_payload,
+        "continuous_eval": holdout_payload,
         "monte_carlo": {
             "n_permutations": mc_result.n_permutations,
             "pass_rate_p05": mc_result.pass_rate_p05,
@@ -287,9 +306,37 @@ def main(argv: list[str] | None = None) -> int:
             "worst_drawdown_median": mc_result.worst_drawdown_median,
         },
         "sizing": {
+            "selection_source": sizing.selection_source,
             "optimal_risk_dollars": sizing.optimal_risk_dollars,
             "optimal_pass_rate": sizing.optimal_pass_rate,
             "optimal_expected_days_per_success": sizing.optimal_expected_days,
+            "optimal_training": (
+                {
+                    "risk_dollars": sizing.optimal_training_result.risk_dollars,
+                    "pass_rate": sizing.optimal_training_result.pass_rate,
+                    "mean_days_per_attempt": sizing.optimal_training_result.mean_days_per_attempt,
+                    "expected_days_per_success": sizing.optimal_training_result.expected_days_per_success,
+                }
+                if sizing.optimal_training_result is not None else None
+            ),
+            "optimal_holdout": (
+                {
+                    "risk_dollars": sizing.optimal_holdout_result.risk_dollars,
+                    "pass_rate": sizing.optimal_holdout_result.pass_rate,
+                    "mean_days_per_attempt": sizing.optimal_holdout_result.mean_days_per_attempt,
+                    "expected_days_per_success": sizing.optimal_holdout_result.expected_days_per_success,
+                }
+                if sizing.optimal_holdout_result is not None else None
+            ),
+            "training_levels": [
+                {
+                    "risk_dollars": l.risk_dollars,
+                    "pass_rate": l.pass_rate,
+                    "mean_days_per_attempt": l.mean_days_per_attempt,
+                    "expected_days_per_success": l.expected_days_per_success,
+                }
+                for l in sizing.training_levels
+            ],
             "all_levels": [
                 {
                     "risk_dollars": l.risk_dollars,

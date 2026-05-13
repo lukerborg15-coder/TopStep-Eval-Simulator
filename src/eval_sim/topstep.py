@@ -87,8 +87,9 @@ def simulate_topstep(
         for trade in day_trades:
             balance += trade.net_pnl
             running_day_pnl += trade.net_pnl
-            dd = balance - rules.account_size  # negative = drawdown from start
-            max_drawdown_seen = max(max_drawdown_seen, -dd)
+            active_high_water = floor + rules.max_drawdown
+            trailing_dd_consumed = max(0.0, active_high_water - balance)
+            max_drawdown_seen = max(max_drawdown_seen, trailing_dd_consumed)
 
             # Intraday drawdown check against current floor
             if balance <= floor:

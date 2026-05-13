@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from dataclasses import replace
 import numpy as np
+import pandas as pd
 from eval_sim.config import TopstepRules, TOPSTEP_50K
 from eval_sim.continuous_eval import run_continuous_eval
 from eval_sim.topstep import _group_by_day
@@ -33,9 +35,20 @@ def _block_bootstrap(
         start_idx = rng.integers(0, max(1, len(days) - block_size + 1))
         sampled_days.extend(days[start_idx: start_idx + block_size])
 
+    base_day = pd.Timestamp(days[0], tz="US/Eastern")
     resampled: list[TradeResult] = []
-    for day in sampled_days:
-        resampled.extend(by_day.get(day, []))
+    for session_idx, day in enumerate(sampled_days):
+        synthetic_day = base_day + pd.Timedelta(days=session_idx)
+        for trade in by_day.get(day, []):
+            original_day = trade.exit_time.tz_convert("US/Eastern").normalize()
+            offset = synthetic_day - original_day
+            resampled.append(
+                replace(
+                    trade,
+                    entry_time=trade.entry_time + offset,
+                    exit_time=trade.exit_time + offset,
+                )
+            )
     return resampled
 
 

@@ -27,12 +27,30 @@ def test_verdict_reject_high_drawdown():
     assert any("drawdown" in r for r in result.reject_reasons)
 
 
+def test_verdict_reject_low_mc_p05():
+    result = compute_verdict(
+        pass_rate=0.70, mc_pass_rate_p05=0.20, worst_drawdown=500.0,
+        sensitivity_is_cliff=False, thresholds=_T,
+    )
+    assert result.verdict == "REJECT"
+    assert any("mc_pass_rate_p05" in r for r in result.reject_reasons)
+
+
 def test_verdict_combine_ready():
     result = compute_verdict(
         pass_rate=0.70, mc_pass_rate_p05=0.60, worst_drawdown=900.0,
         sensitivity_is_cliff=False, thresholds=_T,
     )
     assert result.verdict == "COMBINE-READY"
+    assert not result.reject_reasons
+
+
+def test_verdict_requires_mc_p05_for_combine_ready():
+    result = compute_verdict(
+        pass_rate=0.70, mc_pass_rate_p05=0.50, worst_drawdown=900.0,
+        sensitivity_is_cliff=False, thresholds=_T,
+    )
+    assert result.verdict == "MARGINAL"
     assert not result.reject_reasons
 
 
