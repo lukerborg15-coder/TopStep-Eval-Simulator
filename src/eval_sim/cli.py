@@ -102,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         max_contracts=args.max_contracts,
         config=SearchConfig(n_candidates=args.search_n, seed=SEARCH.seed),
         fast_mode=args.fast,
+        strategy_path=args.strategy,
     )
     print(f"{'FAST MODE' if args.fast else f'Evaluated {search_result.n_evaluated} candidates'}")
     print(f"Selected params: {search_result.best_params}")
