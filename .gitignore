@@ -29,3 +29,6 @@ htmlcov/
 
 # Project output
 output/
+
+# Local OHLCV exports (MNQ, MES, etc.) — large; place files here per README
+Data/
