@@ -138,6 +138,7 @@ def _simulate_trade(
     session_end: Any = None,
     stop_mode: str = "intrabar",
     partial_ladder: tuple[list[float], list[float]] | None = None,
+    be_on_tp1: bool = False,
 ) -> TradeResult:
     """
     Simulate one trade from entry bar forward.
@@ -185,6 +186,7 @@ def _simulate_trade(
             stop_mode,
             stop,
             target,
+            be_on_tp1=be_on_tp1,
         )
 
     return _simulate_single_target(
@@ -297,6 +299,8 @@ def _simulate_partial_ladder(
     stop_mode: str,
     raw_stop: float,
     raw_target: float,
+    *,
+    be_on_tp1: bool = False,
 ) -> TradeResult:
     """Wick-based partial targets; close-based or intrabar full stop on remaining."""
     targets, fracs = partial_ladder
@@ -308,6 +312,7 @@ def _simulate_partial_ladder(
 
     remaining = initial_contracts
     legs_filled = [False] * len(actual_targets)
+    first_partial_filled = False
     gross = 0.0
     commission = 0.0
     weighted_exit_sum = 0.0
@@ -372,6 +377,9 @@ def _simulate_partial_ladder(
                 add_leg(at, leg_size, ts, "target")
                 remaining -= leg_size
                 legs_filled[i] = True
+                if be_on_tp1 and not first_partial_filled:
+                    actual_stop = actual_entry
+                    first_partial_filled = True
 
     if remaining > 0:
         if len(future_bars) > 0:
@@ -481,6 +489,12 @@ def evaluate_window(
         sm = _parse_stop_mode(sig.get("stop_mode") if "stop_mode" in sig.index else None)
         ladder = _parse_partial_ladder(sig)
 
+        be_tp1 = False
+        if "be_on_tp1" in sig.index:
+            v = sig["be_on_tp1"]
+            if pd.notna(v):
+                be_tp1 = bool(v)
+
         trade = _simulate_trade(
             bars,
             entry_ts,
@@ -493,6 +507,7 @@ def evaluate_window(
             session_end=session_end,
             stop_mode=sm,
             partial_ladder=ladder,
+            be_on_tp1=be_tp1,
         )
         trades.append(trade)
         if flat_only:

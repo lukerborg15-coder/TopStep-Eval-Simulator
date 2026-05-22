@@ -329,6 +329,76 @@ def _two_quick_signals_strategy(bars: pd.DataFrame, params: dict) -> pd.DataFram
     )
 
 
+def _be_tp1_strategy(bars: pd.DataFrame, params: dict) -> pd.DataFrame:
+    be = params.get("be_on_tp1", False)
+    ts = bars.index[0]
+    return pd.DataFrame([{
+        "entry_time": ts,
+        "direction": "long",
+        "entry": 100.0,
+        "stop": 95.0,
+        "target": 105.0,
+        "stop_mode": "intrabar",
+        "be_on_tp1": be,
+        "partial_targets": [105.0, 110.0, 120.0],
+        "partial_fracs": [0.5, 0.25, 0.25],
+    }])
+
+
+def test_be_on_tp1_stops_runner_at_entry():
+    """TP1 fires bar 1, BE stop triggers bar 2 (low=99 < actual_entry=100.5)."""
+    idx = pd.date_range("2020-01-02 10:00", periods=5, freq="5min", tz="US/Eastern")
+    df = pd.DataFrame(
+        {
+            "open":   [101.0, 101.0, 101.0, 130.0, 125.0],
+            "high":   [101.0, 108.0, 102.0, 130.0, 125.0],
+            "low":    [101.0, 102.0,  99.0, 102.0, 102.0],
+            "close":  [101.0, 105.0, 100.5, 115.0, 115.0],
+            "volume": [500.0] * 5,
+        },
+        index=idx,
+    )
+    window = Window(start=df.index[0], end=df.index[-1])
+    trades = evaluate_window(
+        df, _be_tp1_strategy,
+        params={"be_on_tp1": True, "flat_only": False},
+        window=window, instrument=MNQ, risk_dollars=9999.0, max_contracts=4,
+    )
+    assert len(trades) == 1
+    t = trades[0]
+    slip = MNQ.slippage_per_side()
+    actual_entry = 100.0 + slip
+    assert t.exit_time == df.index[2]
+    assert t.exit_reason == "stop"
+    exp_vwap = ((105.0 - slip) * 2 + actual_entry * 2) / 4
+    assert abs(t.exit - exp_vwap) < 1e-6
+
+
+def test_be_on_tp1_false_runner_survives_dip():
+    """Without be_on_tp1, dip to 99 does not trigger original stop at 94.5; trade runs to TP2/TP3."""
+    idx = pd.date_range("2020-01-02 10:00", periods=5, freq="5min", tz="US/Eastern")
+    df = pd.DataFrame(
+        {
+            "open":   [101.0, 101.0, 101.0, 130.0, 125.0],
+            "high":   [101.0, 108.0, 102.0, 130.0, 125.0],
+            "low":    [101.0, 102.0,  99.0, 102.0, 102.0],
+            "close":  [101.0, 105.0, 100.5, 115.0, 115.0],
+            "volume": [500.0] * 5,
+        },
+        index=idx,
+    )
+    window = Window(start=df.index[0], end=df.index[-1])
+    trades = evaluate_window(
+        df, _be_tp1_strategy,
+        params={"be_on_tp1": False, "flat_only": False},
+        window=window, instrument=MNQ, risk_dollars=9999.0, max_contracts=4,
+    )
+    assert len(trades) == 1
+    t = trades[0]
+    assert t.exit_time == df.index[3]
+    assert t.exit_reason == "target"
+
+
 def test_flat_only_skips_overlapping_entry():
     idx = pd.date_range("2020-01-02 10:00", periods=8, freq="5min", tz="US/Eastern")
     highs = [100.0, 100.0, 102.0, 100.0, 100.0, 102.0, 102.0, 102.0]
