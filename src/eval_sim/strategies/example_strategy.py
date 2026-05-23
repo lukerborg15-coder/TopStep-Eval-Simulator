@@ -18,6 +18,9 @@ generate_signals must return a pd.DataFrame with columns:
   stop        — float (stop loss price)
   target      — float (profit target price)
 
+Optional columns (see eval_sim.strategy.load_strategy docstring): session_end, stop_mode,
+partial_targets, partial_fracs.
+
 Return an empty DataFrame (with these columns) if there are no signals.
 """
 import pandas as pd

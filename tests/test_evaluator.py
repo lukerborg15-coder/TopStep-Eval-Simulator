@@ -94,12 +94,16 @@ def test_evaluate_window_net_pnl_includes_commission(bars):
 
 
 def test_evaluate_window_trades_do_not_span_sessions():
-    # Bars spanning two calendar days — trades entered on day 1 must exit by day 1.
+    # With session_end="17:00", trades entered on day 1 must exit by 17:00 that day.
+    def _session17_strategy(bars, params):
+        sig = _always_long_strategy(bars, params)
+        sig["session_end"] = "17:00"
+        return sig
+
     multi_day_bars = make_bars(n=400, freq="5min", start="2020-01-02 09:30")
-    # 400 bars × 5min = 2000min ≈ 33h, covering Jan 2 and Jan 3
     window = Window(start=multi_day_bars.index[0], end=multi_day_bars.index[-1])
     trades = evaluate_window(
-        multi_day_bars, _always_long_strategy, params={"stop_dist": 10.0},
+        multi_day_bars, _session17_strategy, params={"stop_dist": 10.0},
         window=window, instrument=MNQ, risk_dollars=500.0, max_contracts=5,
     )
     for t in trades:
@@ -108,6 +112,18 @@ def test_evaluate_window_trades_do_not_span_sessions():
         assert entry_date == exit_date, (
             f"Trade spanned sessions: entry {t.entry_time}, exit {t.exit_time}"
         )
+
+
+def test_evaluate_window_no_session_end_spans_days():
+    # With session_end=None, trades can span calendar days (overnight allowed).
+    multi_day_bars = make_bars(n=400, freq="5min", start="2020-01-02 18:00")
+    window = Window(start=multi_day_bars.index[0], end=multi_day_bars.index[-1])
+    trades = evaluate_window(
+        multi_day_bars, _always_long_strategy, params={"stop_dist": 10.0},
+        window=window, instrument=MNQ, risk_dollars=500.0, max_contracts=5,
+    )
+    dates = {(t.entry_time.tz_convert("US/Eastern").date(), t.exit_time.tz_convert("US/Eastern").date()) for t in trades}
+    assert any(entry != exit for entry, exit in dates), "Expected at least one overnight trade"
 
 
 def _session_17h_strategy(bars: pd.DataFrame, params: dict) -> pd.DataFrame:

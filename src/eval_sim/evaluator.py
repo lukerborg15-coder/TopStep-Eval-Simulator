@@ -33,13 +33,13 @@ def _size_position(
 def _session_cutoff_exclusive(entry_time: pd.Timestamp, session_end: Any) -> pd.Timestamp:
     """
     Exclusive upper bound for bar timestamps in the trade session (US/Eastern calendar day).
-    session_end None: through end of calendar day (legacy, exclusive next midnight).
+    session_end None: no cutoff — trade runs until stop/target hit or end of data.
     session_end str like '17:00' / '17:00:00': last bar strictly before this clock on entry date.
     """
     entry_local = entry_time.tz_convert("US/Eastern")
     day_midnight = entry_local.normalize()
     if session_end is None or pd.isna(session_end):
-        return day_midnight + pd.Timedelta(days=1)
+        return pd.Timestamp.max.tz_localize("UTC")
 
     if isinstance(session_end, pd.Timestamp):
         se = session_end
@@ -223,7 +223,7 @@ def _simulate_single_target(
         if direction == "long":
             if stop_mode == "close":
                 if bar["close"] <= actual_stop:
-                    exit_price = actual_stop
+                    exit_price = bar["close"] - slippage
                     exit_time = ts
                     exit_reason = "stop"
                     break
@@ -241,7 +241,7 @@ def _simulate_single_target(
         else:
             if stop_mode == "close":
                 if bar["close"] >= actual_stop:
-                    exit_price = actual_stop
+                    exit_price = bar["close"] + slippage
                     exit_time = ts
                     exit_reason = "stop"
                     break
@@ -342,11 +342,11 @@ def _simulate_partial_ladder(
         # 1) Close-based stop (full remaining)
         if stop_mode == "close":
             if direction == "long" and bar["close"] <= actual_stop:
-                add_leg(actual_stop, remaining, ts, "stop")
+                add_leg(bar["close"] - slippage, remaining, ts, "stop")
                 remaining = 0
                 break
             if direction == "short" and bar["close"] >= actual_stop:
-                add_leg(actual_stop, remaining, ts, "stop")
+                add_leg(bar["close"] + slippage, remaining, ts, "stop")
                 remaining = 0
                 break
         else:
