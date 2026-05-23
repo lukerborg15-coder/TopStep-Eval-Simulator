@@ -39,3 +39,8 @@ src/eval_sim/strategies/*
 !src/eval_sim/strategies/example_strategy.py
 tests/test_sma21_retrace.py
 tests/test_sma21_wick_entry.py
+
+# Local / proprietary strategy design docs — keep public plans only
+docs/superpowers/**/*sma21*
+docs/superpowers/**/*wick*
+docs/superpowers/**/*retrace*
