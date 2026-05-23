@@ -6,7 +6,8 @@ from datetime import datetime
 from dataclasses import replace
 from pathlib import Path
 
-from eval_sim.config import INSTRUMENTS, DATA_SPLIT, SEARCH, TOPSTEP_50K
+from eval_sim.config import INSTRUMENTS, DATA_SPLIT, SEARCH, TOPSTEP_50K, TOPSTEP_50K_FUNDED
+from eval_sim.funded import run_funded_mc, VARIANT_SPECS
 from eval_sim.continuous_eval import run_continuous_eval
 from eval_sim.data import load_ohlcv, DataLoadError
 from eval_sim.evaluator import evaluate_window
@@ -40,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reject-max-dd", type=float, default=1800.0)
     p.add_argument("--ready-pass-rate", type=float, default=0.60)
     p.add_argument("--ready-max-dd", type=float, default=1200.0)
+    p.add_argument("--funded-sim", action="store_true", help="Run funded account Kelly simulation after Verdict")
+    p.add_argument("--kelly-fraction", choices=["full", "half", "quarter", "all"], default="all",
+                   help="Kelly fraction variant(s) to include in funded sim (default: all)")
+    p.add_argument("--funded-mc-n", type=int, default=1000, help="Funded MC permutations")
+    p.add_argument("--funded-target-profit", type=float, default=1500.0,
+                   help="Target profit dollars for funded sim payout timing")
     return p
 
 
@@ -222,6 +229,61 @@ def main(argv: list[str] | None = None) -> int:
     for w in verdict.warn_reasons:
         print(f"  WARN: {w}")
 
+    # Stage 7: Funded Account Sim (optional, gated on --funded-sim)
+    funded_payload: dict | None = None
+    if args.funded_sim:
+        _header("Stage 7 — Funded Sim (Kelly)")
+        if verdict.verdict == "REJECT" and not args.funded_sim:
+            print("Skipped — verdict is REJECT. Pass --funded-sim explicitly to override.")
+        else:
+            if verdict.verdict == "REJECT":
+                print("WARN: verdict is REJECT — funded sim results may not be meaningful.")
+
+            if args.kelly_fraction == "all":
+                variant_names = None
+            else:
+                variant_names = [f"kelly_{args.kelly_fraction}", "fixed"]
+
+            funded_mc = run_funded_mc(
+                holdout_trades,
+                TOPSTEP_50K_FUNDED,
+                instrument,
+                variant_names=variant_names,
+                fallback_risk=sizing.optimal_risk_dollars,
+                target_profit=args.funded_target_profit,
+                n=args.funded_mc_n,
+            )
+
+            # Console table
+            header = f"  {'Variant':<18} {'Ruin%':>6}  {'Median days':>11}  {'p10':>6}  {'p90':>6}"
+            print(header)
+            print("  " + "-" * (len(header) - 2))
+            for v in funded_mc.variants:
+                ruin_pct = f"{v.ruin_prob * 100:.1f}%"
+                med = f"{v.median_days_to_target:.0f}" if v.median_days_to_target is not None else "N/A"
+                p10 = f"{v.p10_days_to_target:.0f}" if v.p10_days_to_target is not None else "N/A"
+                p90 = f"{v.p90_days_to_target:.0f}" if v.p90_days_to_target is not None else "N/A"
+                print(f"  {v.name:<18} {ruin_pct:>6}  {med:>11}  {p10:>6}  {p90:>6}")
+
+            funded_payload = {
+                "account_size": TOPSTEP_50K_FUNDED.account_size,
+                "dd_model": "topstep_trail_freeze",
+                "mc_source": "holdout_only",
+                "n_permutations": funded_mc.n_permutations,
+                "target_profit": args.funded_target_profit,
+                "fallback_risk_dollars": sizing.optimal_risk_dollars,
+                "variants": [
+                    {
+                        "name": v.name,
+                        "ruin_prob": v.ruin_prob,
+                        "median_days_to_target": v.median_days_to_target,
+                        "p10_days_to_target": v.p10_days_to_target,
+                        "p90_days_to_target": v.p90_days_to_target,
+                    }
+                    for v in funded_mc.variants
+                ],
+            }
+
     # Write JSON output (timestamped so reruns do not clobber prior results)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -361,6 +423,7 @@ def main(argv: list[str] | None = None) -> int:
             "reject_reasons": list(verdict.reject_reasons),
             "warn_reasons": list(verdict.warn_reasons),
         },
+        "funded": funded_payload,
     }
 
     out_file.write_text(json.dumps(result_bundle, indent=2, default=str))

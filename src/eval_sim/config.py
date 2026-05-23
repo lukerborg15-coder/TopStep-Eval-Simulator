@@ -54,8 +54,34 @@ MES = Instrument(
     slippage_ticks_per_side=1,
 )
 
+MGC = Instrument(
+    symbol="MGC",
+    point_value=10.0,
+    tick_size=0.10,
+    commission_round_turn=1.52,
+    slippage_ticks_per_side=1,
+)
+
+MCL = Instrument(
+    symbol="MCL",
+    point_value=100.0,
+    tick_size=0.01,
+    commission_round_turn=1.40,
+    slippage_ticks_per_side=1,
+)
+
+@dataclass(frozen=True)
+class FundedRules:
+    account_size: float = 50_000.0
+    trailing_dd: float = 2_000.0           # floor = eod_balance - trailing_dd
+    dd_freeze_threshold: float = 52_000.0  # once balance >= this, floor freezes permanently
+    dd_freeze_floor: float = 50_000.0      # floor value after freeze triggers
+    daily_loss_limit: float = 1_000.0
+
+
 TOPSTEP_50K = TopstepRules()
+TOPSTEP_50K_FUNDED = FundedRules()
 DATA_SPLIT = DataSplitConfig()
 SEARCH = SearchConfig()
 
-INSTRUMENTS: dict[str, Instrument] = {"mnq": MNQ, "mes": MES}
+INSTRUMENTS: dict[str, Instrument] = {"mnq": MNQ, "mes": MES, "mgc": MGC, "mcl": MCL}
